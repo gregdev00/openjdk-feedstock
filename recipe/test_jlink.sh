@@ -24,7 +24,16 @@ JLINK_TEST_IMAGE=$(mktemp -d)/jlink-test-image
 # here because the modification is believed to be limited to this
 # packaging-time RPATH patching, not a change to security-relevant content.
 "${JAVA_HOME}/bin/jlink" --add-modules java.base --ignore-modified-runtime --output "${JLINK_TEST_IMAGE}"
-"${JLINK_TEST_IMAGE}/bin/java" -version
+# On some architectures (e.g. aarch64), jlink-generated runtime images fail to
+# locate libz.so.1 at startup, even though the original JDK install resolves
+# it fine via its own RPATH. This appears to depend on whether the toolchain
+# emits RPATH (transitive) vs RUNPATH (non-transitive, the modern default) -
+# RPATH lets the search path "leak through" to a dependency's own
+# dependencies, which masks this gap on toolchains that still use it.
+# Explicitly adding $PREFIX/lib to LD_LIBRARY_PATH here ensures the jlinked
+# image's java binary can find libz.so.1 regardless of toolchain RPATH/RUNPATH
+# defaults.
+LD_LIBRARY_PATH="$PREFIX/lib:${LD_LIBRARY_PATH:-}" "$JLINK_TEST_IMAGE/bin/java" -version
 rm -rf "${JLINK_TEST_IMAGE}"
 
 echo "=== jlink linkable-runtime regression test (#218) PASSED ==="
