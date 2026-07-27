@@ -16,23 +16,23 @@ echo "-> jlink reports linkable-runtime support enabled"
 
 JLINK_TEST_IMAGE=$(mktemp -d)/jlink-test-image
 # jlink's run-time image integrity check flags files (e.g. bin/keytool) as
-# modified relative to what the JDK build recorded. This recipe enables
-# binary_relocation for linux (see `dynamic_linking` in recipe.yaml), which
-# patches RPATHs in binaries as part of rattler-build's post-processing
-# after the JDK is built - the most likely cause.
-# --ignore-modified-runtime demotes this to a warning; it is used
-# here because the modification is believed to be limited to this
-# packaging-time RPATH patching, not a change to security-relevant content.
+# modified relative to what the JDK build recorded. Confirmed by comparing
+# the raw build output against the packaged binaries: the unpackaged
+# bin/java has RPATH [$ORIGIN:$ORIGIN/../lib], while the packaged one has
+# RPATH [$ORIGIN/../..:$ORIGIN:$ORIGIN/../lib] - rattler-build's
+# binary_relocation post-processing (see `dynamic_linking` in recipe.yaml)
+# adds the extra $ORIGIN/../.. entry after the JDK build has already
+# recorded its integrity hashes, which is what jlink flags. Running jlink
+# directly against the raw build output produces no such warnings.
+# --ignore-modified-runtime demotes this to a warning, since the change is
+# this expected, packaging-time RPATH patch (required for the package to
+# work when installed into a user's actual environment prefix), not a
+# change to security-relevant content.
 "${JAVA_HOME}/bin/jlink" --add-modules java.base --ignore-modified-runtime --output "${JLINK_TEST_IMAGE}"
-# On some architectures (e.g. aarch64), jlink-generated runtime images fail to
-# locate libz.so.1 at startup, even though the original JDK install resolves
-# it fine via its own RPATH. This appears to depend on whether the toolchain
-# emits RPATH (transitive) vs RUNPATH (non-transitive, the modern default) -
-# RPATH lets the search path "leak through" to a dependency's own
-# dependencies, which masks this gap on toolchains that still use it.
-# Explicitly adding $PREFIX/lib to LD_LIBRARY_PATH here ensures the jlinked
-# image's java binary can find libz.so.1 regardless of toolchain RPATH/RUNPATH
-# defaults.
+# jlink does not bundle non-JDK OS libraries (e.g. zlib) into the image, and
+# the copied bin/java's $ORIGIN-relative RPATH does not reach $PREFIX/lib
+# from the jlinked image's shallower layout. Set LD_LIBRARY_PATH so this
+# test resolves libz.so.1 the same way the unpackaged JDK does.
 LD_LIBRARY_PATH="$PREFIX/lib:${LD_LIBRARY_PATH:-}" "$JLINK_TEST_IMAGE/bin/java" -version
 rm -rf "${JLINK_TEST_IMAGE}"
 
